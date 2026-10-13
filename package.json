@@ -15,11 +15,14 @@
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^6.9.14",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.0",
+    "@vitejs/plugin-react": "^4.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "concurrently": "^8.2.2",
-    "vite": "^5.4.0"
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

@@ -7,26 +7,53 @@ const api = async (p, m = 'GET', b) => {
   return j;
 };
 const toggle = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
-const TABS = [['Dashboard', 'Dashboard'], ['Contacts', 'Customers'], ['Campaigns', 'Campaigns'], ['Autopilot', 'Autopilot']];
+const TABS = [['Dashboard', 'Dashboard'], ['Contacts', 'Customers'], ['Campaigns', 'Campaigns'], ['Autopilot', 'Autopilot'], ['Setup', 'Setup']];
+
+const Eye = ({ on }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />{on && <path d="M4 4l16 16" />}
+  </svg>
+);
+
+function PasswordField({ value, onChange, placeholder }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="pw">
+      <input type={show ? 'text' : 'password'} placeholder={placeholder} value={value} onChange={onChange} required minLength={6} />
+      <button type="button" className="eye" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'} title={show ? 'Hide password' : 'Show password'}><Eye on={show} /></button>
+    </div>
+  );
+}
 
 function Auth({ done }) {
-  const [m, setM] = useState('login'), [f, setF] = useState({}), [err, setErr] = useState('');
+  const resetToken = new URLSearchParams(location.search).get('reset');
+  const [m, setM] = useState(resetToken ? 'reset' : 'login'), [f, setF] = useState({}), [err, setErr] = useState(''), [msg, setMsg] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const swap = (x) => { setM(x); setErr(''); setMsg(''); };
   const go = async (e) => {
-    e.preventDefault();
-    try { const r = await api('/' + m, 'POST', f); localStorage.token = r.token; done(); } catch (x) { setErr(x.message); }
+    e.preventDefault(); setErr(''); setMsg('');
+    try {
+      if (m === 'forgot') { await api('/forgot', 'POST', f); setMsg('If that email has an account, a reset link is on its way. It works for one hour.'); return; }
+      const r = await api('/' + m, 'POST', m === 'reset' ? { token: resetToken, password: f.password } : f);
+      localStorage.token = r.token;
+      if (m === 'reset') history.replaceState({}, '', '/');
+      done();
+    } catch (x) { setErr(x.message); }
   };
   return (
     <div className="auth">
       <div className="badge"><img src="/logo.png" alt="Arvo Market" /></div>
       <form className="panel" onSubmit={go}>
-        <h2>{m === 'login' ? 'Log in to your agent' : 'Create your account'}</h2>
+        <h2>{{ login: 'Log in to your agent', signup: 'Create your account', forgot: 'Reset your password', reset: 'Choose a new password' }[m]}</h2>
+        {m === 'forgot' && <p className="note">Enter your email and we'll send a link to set a new password.</p>}
         {m === 'signup' && <><input placeholder="Your name" onChange={set('name')} required /><input placeholder="Business name" onChange={set('business')} required /></>}
-        <input type="email" placeholder="Email" onChange={set('email')} required />
-        <input type="password" placeholder="Password (6+ characters)" onChange={set('password')} required minLength={6} />
+        {m !== 'reset' && <input type="email" placeholder="Email" value={f.email || ''} onChange={set('email')} required />}
+        {m !== 'forgot' && <PasswordField placeholder={m === 'reset' ? 'New password (6+ characters)' : 'Password (6+ characters)'} value={f.password || ''} onChange={set('password')} />}
         {err && <p className="err">{err}</p>}
-        <button className="btn">{m === 'login' ? 'Log in' : 'Sign up'}</button>
-        <p className="link" onClick={() => { setM(m === 'login' ? 'signup' : 'login'); setErr(''); }}>{m === 'login' ? 'New here? Create an account' : 'Have an account? Log in'}</p>
+        {msg && <p className="note">{msg}</p>}
+        <button className="btn">{{ login: 'Log in', signup: 'Sign up', forgot: 'Send reset link', reset: 'Save new password' }[m]}</button>
+        {m === 'login' && <p className="link" onClick={() => swap('forgot')}>Forgot password?</p>}
+        {(m === 'login' || m === 'signup') ? <p className="link" onClick={() => swap(m === 'login' ? 'signup' : 'login')}>{m === 'login' ? 'New here? Create an account' : 'Have an account? Log in'}</p> : <p className="link" onClick={() => swap('login')}>Back to log in</p>}
       </form>
     </div>
   );
@@ -148,6 +175,31 @@ function Autopilot({ s, load }) {
   );
 }
 
+function Setup({ s }) {
+  const [to, setTo] = useState({ email: '', sms: '' }), [res, setRes] = useState({});
+  const put = (ch, v) => setRes((r) => ({ ...r, [ch]: v }));
+  const test = async (ch) => {
+    put(ch, 'Sending...');
+    try { const r = await api('/test', 'POST', { channel: ch, to: to[ch] }); put(ch, r.status === 'simulated' ? 'Simulated. Add your keys to .env and restart the app to send for real.' : 'Sent. Check your ' + (ch === 'sms' ? 'phone.' : 'inbox.')); } catch (e) { put(ch, 'Failed: ' + e.message); }
+  };
+  return (
+    <>
+      <h3>Connections</h3>
+      <p className="note">Add your keys to the .env file, restart the app, then test each connection here. Copywriting: <b>{s.mode.ai ? 'connected to Claude' : 'using templates'}</b>.</p>
+      {[['email', 'Email', s.mode.email], ['sms', 'Texts', s.mode.sms]].map(([ch, n, on]) => (
+        <div key={ch} className="panel form">
+          <b>{n}: {on ? 'connected' : 'not connected (simulated)'}</b>
+          <div className="row">
+            <input placeholder={ch === 'sms' ? 'Your phone, e.g. +15551234567' : 'Your email'} value={to[ch]} onChange={(e) => setTo({ ...to, [ch]: e.target.value })} />
+            <button className="btn alt" onClick={() => test(ch)}>Send test</button>
+          </div>
+          {res[ch] && <p className={res[ch].startsWith('Failed') ? 'err' : 'note'}>{res[ch]}</p>}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function Palette({ go, close, run }) {
   const [q, setQ] = useState('');
   const items = [...TABS.map(([id, n]) => ({ t: 'Go to ' + n, f: () => go(id) })), { t: 'Run the agent now', f: run }].filter((i) => i.t.toLowerCase().includes(q.toLowerCase()));
@@ -162,7 +214,7 @@ function Palette({ go, close, run }) {
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState(!!localStorage.token), [s, setS] = useState(null), [tab, setTab] = useState('Dashboard'), [pal, setPal] = useState(false);
+  const [authed, setAuthed] = useState(!!localStorage.token && !new URLSearchParams(location.search).get('reset')), [s, setS] = useState(null), [tab, setTab] = useState('Dashboard'), [pal, setPal] = useState(false);
   const load = () => api('/state').then(setS).catch(() => { localStorage.removeItem('token'); setAuthed(false); });
   useEffect(() => { if (!authed) return; load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, [authed]);
   useEffect(() => { const k = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setPal(true); } }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, []);
@@ -185,6 +237,7 @@ export default function App() {
         {tab === 'Contacts' && <Contacts {...P} />}
         {tab === 'Campaigns' && <Campaigns {...P} />}
         {tab === 'Autopilot' && <Autopilot {...P} />}
+        {tab === 'Setup' && <Setup {...P} />}
       </main>
       {pal && <Palette go={setTab} close={() => setPal(false)} run={runAgent} />}
     </div>

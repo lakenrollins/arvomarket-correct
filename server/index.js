@@ -6,9 +6,13 @@ import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
 import crypto from 'crypto';
+import path from 'path';
 
 const SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
-const DB = 'server/data.json';
+const DIR = process.env.DATA_DIR || 'server';
+fs.mkdirSync(DIR, { recursive: true });
+const DB = DIR + '/data.json';
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) throw new Error('Set JWT_SECRET before running in production');
 let db = fs.existsSync(DB) ? JSON.parse(fs.readFileSync(DB)) : { users: [], contacts: [], campaigns: [], logs: [] };
 const save = () => fs.writeFileSync(DB, JSON.stringify(db, null, 2));
 const id = () => crypto.randomUUID();
@@ -28,7 +32,7 @@ const sendSMS = async (to, body) => {
     headers: { Authorization: 'Basic ' + Buffer.from(E.TWILIO_SID + ':' + E.TWILIO_TOKEN).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ To: to, From: E.TWILIO_FROM, Body: body }),
   });
-  if (!r.ok) throw new Error('Twilio ' + r.status);
+  if (!r.ok) throw new Error('Twilio: ' + ((await r.json().catch(() => ({}))).message || r.status));
   return 'sent';
 };
 
@@ -127,6 +131,29 @@ app.post('/api/login', h(async (q, s) => {
   s.json(token(u));
 }));
 
+app.post('/api/forgot', h(async (q, s) => {
+  const u = db.users.find((x) => x.email === (q.body.email || '').toLowerCase());
+  if (u) {
+    const raw = crypto.randomBytes(32).toString('hex');
+    u.reset = { hash: crypto.createHash('sha256').update(raw).digest('hex'), exp: Date.now() + 3600e3 };
+    save();
+    const link = `${E.APP_URL || 'http://localhost:5173'}/?reset=${raw}`;
+    try {
+      if (mail) await sendEmail(u.email, 'Reset your Arvo Market password', `Hi ${u.name},\n\nUse this link to choose a new password. It works for one hour:\n${link}\n\nIf you didn't ask for this, you can ignore this email.`);
+      else console.log(`\n[Password reset: email not configured] Link for ${u.email}:\n${link}\n`);
+    } catch (e) { console.log('Reset email failed:', e.message); }
+  }
+  s.json({ ok: true });
+}));
+app.post('/api/reset', h(async (q, s) => {
+  const { token: t, password } = q.body;
+  if (!password || password.length < 6) throw new Error('Password must be at least 6 characters');
+  const hash = crypto.createHash('sha256').update(t || '').digest('hex');
+  const u = db.users.find((x) => x.reset && x.reset.hash === hash && x.reset.exp > Date.now());
+  if (!u) throw new Error('This reset link is invalid or has expired');
+  u.hash = await bcrypt.hash(password, 10); delete u.reset; save(); s.json(token(u));
+}));
+
 app.get('/api/state', auth, h((q, s) => s.json({
   user: pub(user(q)),
   contacts: db.contacts.filter((x) => x.userId === q.uid),
@@ -144,6 +171,13 @@ app.post('/api/contacts', auth, h((q, s) => {
 app.delete('/api/contacts/:id', auth, h((q, s) => { db.contacts = db.contacts.filter((c) => !(c.id === q.params.id && c.userId === q.uid)); save(); s.json({}); }));
 
 app.post('/api/generate', auth, h(async (q, s) => s.json(await generate({ ...q.body, business: user(q).business }))));
+
+app.post('/api/test', auth, h(async (q, s) => {
+  const { channel, to } = q.body;
+  if (!to) throw new Error('Enter where to send the test');
+  const status = channel === 'sms' ? await sendSMS(to, 'Test from Arvo Market. Your texting is connected.') : await sendEmail(to, 'Arvo Market test', 'Your email sending is connected.');
+  s.json({ status });
+}));
 
 app.post('/api/campaigns', auth, h(async (q, s) => {
   const { name, goal, subject, email, sms, channels, scheduleAt, now, tag } = q.body;
@@ -166,4 +200,10 @@ app.post('/api/twilio/inbound', (q, s) => {
   s.type('text/xml').send('<Response/>');
 });
 
-app.listen(3001, () => console.log('Arvo API on :3001'));
+// Production: serve the built website from the same server
+if (fs.existsSync('dist')) {
+  app.use(express.static('dist'));
+  app.get('*', (q, s) => s.sendFile(path.resolve('dist/index.html')));
+}
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log('Arvo running on :' + PORT));

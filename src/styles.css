@@ -61,3 +61,11 @@ td { padding: 9px 8px; border-bottom: 1px solid var(--line); }
 .pal a { padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .pal a:hover { background: var(--bg); }
 @media (max-width: 760px) { .app { grid-template-columns: 1fr; } aside { flex-direction: row; flex-wrap: wrap; border: 0; } .grid2 { grid-template-columns: 1fr; } main { padding: 16px; } }
+
+.panel + .panel { margin-top: 12px; }
+
+.pw { position: relative; }
+.pw input { padding-right: 44px; }
+.eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; color: var(--mute); cursor: pointer; padding: 6px; display: grid; }
+.eye:hover { color: var(--text); }
+.eye:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; }
