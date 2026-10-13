@@ -96,7 +96,7 @@ function Dash({ s }) {
           </div>
         </section>
       </div>
-      <p className="note">Email is <b>{s.mode.email ? 'live' : 'simulated'}</b>, texts are <b>{s.mode.sms ? 'live' : 'simulated'}</b>, copywriting uses <b>{s.mode.ai ? 'Claude' : 'templates'}</b>. Add keys to .env to go live.</p>
+      <p className="note">Email is <b>{s.mode.email ? 'live' : 'simulated'}</b>, texts are <b>{s.mode.sms ? 'live' : 'simulated'}</b>, copywriting uses <b>{s.mode.ai || 'templates'}</b>. Add keys to .env to go live.</p>
       <h3>Recent activity</h3>
       <table><tbody>{s.logs.slice(0, 15).map((l) => <tr key={l.id}><td>{new Date(l.at).toLocaleString()}</td><td>{l.campaign}</td><td>{l.channel}</td><td>{l.to}</td><td className={l.status.startsWith('failed') ? 'err' : ''}>{l.status}</td></tr>)}</tbody></table>
     </>
@@ -185,7 +185,7 @@ function Setup({ s }) {
   return (
     <>
       <h3>Connections</h3>
-      <p className="note">Add your keys to the .env file, restart the app, then test each connection here. Copywriting: <b>{s.mode.ai ? 'connected to Claude' : 'using templates'}</b>.</p>
+      <p className="note">Add your keys to the .env file, restart the app, then test each connection here. Copywriting: <b>{s.mode.ai ? 'connected to ' + s.mode.ai : 'using templates'}</b>.</p>
       {[['email', 'Email', s.mode.email], ['sms', 'Texts', s.mode.sms]].map(([ch, n, on]) => (
         <div key={ch} className="panel form">
           <b>{n}: {on ? 'connected' : 'not connected (simulated)'}</b>

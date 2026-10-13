@@ -36,7 +36,7 @@ const sendSMS = async (to, body) => {
   return 'sent';
 };
 
-// ---------- AI agent ----------
+// ---------- AI agent (Claude or free Gemini key; templates if neither) ----------
 const generate = async ({ goal, business, tone }) => {
   const b = business || 'our shop';
   const fallback = {
@@ -44,20 +44,29 @@ const generate = async ({ goal, business, tone }) => {
     email: `Hi {{name}},\n\n${goal}.\n\nWe'd love to see you soon.\n\nWarmly,\n${b}`,
     sms: `Hi {{name}}! ${goal}. - ${b}`.slice(0, 140),
   };
-  if (!E.ANTHROPIC_API_KEY) return fallback;
+  const prompt = `You are the marketing agent for "${b}". Goal: ${goal}. Tone: ${tone || 'friendly'}. Return ONLY JSON: {"subject":"","email":"","sms":""}. Use {{name}} for the customer's first name. Email: plain text, under 120 words. SMS: under 140 characters. No placeholders other than {{name}}.`;
+  const parse = (t) => JSON.parse(t.replace(/```json|```/g, '').trim());
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': E.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: E.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
-        max_tokens: 800,
-        messages: [{ role: 'user', content: `You are the marketing agent for "${b}". Goal: ${goal}. Tone: ${tone || 'friendly'}. Return ONLY JSON: {"subject":"","email":"","sms":""}. Use {{name}} for the customer's first name. Email: plain text, under 120 words. SMS: under 140 characters. No placeholders other than {{name}}.` }],
-      }),
-    });
-    const j = await r.json();
-    return JSON.parse(j.content[0].text.replace(/```json|```/g, '').trim());
-  } catch { return fallback; }
+    if (E.ANTHROPIC_API_KEY) {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': E.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({ model: E.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 800, messages: [{ role: 'user', content: prompt }] }),
+      });
+      const j = await r.json();
+      return parse(j.content[0].text);
+    }
+    if (E.GEMINI_API_KEY) {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${E.GEMINI_MODEL || 'gemini-2.5-flash-lite'}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': E.GEMINI_API_KEY, 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } }),
+      });
+      const j = await r.json();
+      return parse(j.candidates[0].content.parts[0].text);
+    }
+  } catch (e) { console.log('AI error, using template instead:', e.message); }
+  return fallback;
 };
 
 // ---------- Sending ----------
@@ -160,7 +169,7 @@ app.get('/api/state', auth, h((q, s) => s.json({
   campaigns: db.campaigns.filter((x) => x.userId === q.uid),
   logs: db.logs.filter((x) => x.userId === q.uid).slice(0, 200),
   agent: db.agent.filter((x) => x.userId === q.uid).slice(0, 40),
-  mode: { email: !!mail, sms: !!E.TWILIO_SID, ai: !!E.ANTHROPIC_API_KEY },
+  mode: { email: !!mail, sms: !!E.TWILIO_SID, ai: E.ANTHROPIC_API_KEY ? 'Claude' : E.GEMINI_API_KEY ? 'Gemini' : false },
 })));
 
 app.post('/api/contacts', auth, h((q, s) => {
